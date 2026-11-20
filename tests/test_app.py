@@ -1,27 +1,60 @@
-import pytest
-from fastapi import HTTPException
+from urllib.parse import quote
 
-from src.app import activities, signup_for_activity
+from fastapi.testclient import TestClient
 
-
-def test_signup_rejects_student_already_registered_for_activity(monkeypatch):
-    activity_name = "Test Activity"
-    email = "student@mergington.edu"
-    monkeypatch.setitem(activities, activity_name, {"participants": [email]})
-
-    with pytest.raises(HTTPException) as exc_info:
-        signup_for_activity(activity_name, email)
-
-    assert exc_info.value.status_code == 400
-    assert activities[activity_name]["participants"] == [email]
+from src.app import activities, app
 
 
 def test_signup_allows_student_not_yet_registered_for_activity(monkeypatch):
+    # Arrange
     activity_name = "Test Activity"
     email = "student@mergington.edu"
     monkeypatch.setitem(activities, activity_name, {"participants": []})
+    client = TestClient(app)
 
-    result = signup_for_activity(activity_name, email)
+    # Act
+    response = client.post(
+        f"/activities/{quote(activity_name, safe='')}/signup",
+        params={"email": email},
+    )
 
-    assert result == {"message": f"Signed up {email} for {activity_name}"}
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {"message": f"Signed up {email} for {activity_name}"}
     assert activities[activity_name]["participants"] == [email]
+
+
+def test_signup_rejects_student_already_registered_for_activity(monkeypatch):
+    # Arrange
+    activity_name = "Test Activity"
+    email = "student@mergington.edu"
+    monkeypatch.setitem(activities, activity_name, {"participants": [email]})
+    client = TestClient(app)
+
+    # Act
+    response = client.post(
+        f"/activities/{quote(activity_name, safe='')}/signup",
+        params={"email": email},
+    )
+
+    # Assert
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Student is already signed up"}
+    assert activities[activity_name]["participants"] == [email]
+
+
+def test_signup_returns_not_found_for_unknown_activity():
+    # Arrange
+    activity_name = "Unknown Activity"
+    email = "student@mergington.edu"
+    client = TestClient(app)
+
+    # Act
+    response = client.post(
+        f"/activities/{quote(activity_name, safe='')}/signup",
+        params={"email": email},
+    )
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Activity not found"}
